@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EDSS v8.0 - Coco test</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { dark:'#0b1220', panel:'#172033', panel2:'#1d2940', accent:'#38bdf8', border:'#334155' },
+            status: { pass:'#22c55e', warn:'#f59e0b', fail:'#ef4444' }
+          },
+          fontFamily: { sans:['Segoe UI','Microsoft JhengHei','sans-serif'], mono:['Consolas','monospace'] }
+        }
+      }
+    };
+  </script>
+  <style>
+    body{background:#0b1220;color:#cbd5e1}
+    .tab-content{display:none}.tab-content.active{display:flex}
+    .tab-btn.active{color:#38bdf8;border-bottom:2px solid #38bdf8}
+    .glass{background:linear-gradient(145deg,rgba(29,41,64,.95),rgba(23,32,51,.9))}
+    input[type=range]{accent-color:#38bdf8}
+    ::-webkit-scrollbar{width:7px;height:7px}
+    ::-webkit-scrollbar-thumb{background:#334155;border-radius:4px}
+    @media print{
+      header,.no-print{display:none!important}
+      body{background:#fff!important;color:#000!important}
+      .tab-content{display:none!important}
+      #tab-report{display:flex!important}
+      .print-panel{border:1px solid #bbb;break-inside:avoid}
+    }
+  </style>
+</head>
+<body class="min-h-screen font-sans text-sm">
+<header class="sticky top-0 z-20 bg-brand-panel border-b border-brand-border px-4 py-3 no-print">
+  <div class="flex flex-col xl:flex-row gap-3 justify-between xl:items-center">
+    <div>
+      <div class="text-white font-bold text-lg">DS-070KN-01 <span class="text-brand-accent text-sm font-normal ml-2">Coco test</span></div>
+      <div class="text-[10px] text-slate-500">Tolerance · Magnetic Flux · Firmware · Capability </div>
+    </div>
+    <div class="flex flex-col lg:flex-row gap-3 lg:items-center overflow-x-auto">
+      <nav class="flex gap-4 text-xs font-bold text-slate-400 whitespace-nowrap">
+        <button class="tab-btn active pb-1" onclick="switchTab('tab-hw',this)">1. HW</button>
+        <button class="tab-btn pb-1" onclick="switchTab('tab-mag',this)">2. Magnetic</button>
+        <button class="tab-btn pb-1" onclick="switchTab('tab-fw',this)">3. FW</button>
+        <button class="tab-btn pb-1" onclick="switchTab('tab-doe',this)">4. DOE</button>
+        <button class="tab-btn pb-1" onclick="switchTab('tab-cap',this)">5. Capability</button>
+        <button class="tab-btn pb-1" onclick="switchTab('tab-ai',this)">6. Decision</button>
+        <button class="tab-btn pb-1" onclick="switchTab('tab-report',this)">7. Report</button>
+      </nav>
+      <button onclick="window.print()" class="px-4 py-1.5 rounded bg-brand-accent text-brand-dark font-bold text-xs">Export PDF</button>
+    </div>
+  </div>
+</header>
+
+<main>
+<section id="tab-hw" class="tab-content active min-h-screen flex-col lg:flex-row">
+  <aside class="w-full lg:w-[360px] bg-brand-panel border-r border-brand-border p-4">
+    <div class="flex justify-between items-center border-b border-brand-border pb-3 mb-4">
+      <span class="text-xs text-brand-accent font-bold">Functional SPEC (±mm)</span>
+      <input id="targetSpec" value="0.05" step="0.005" type="number" class="w-24 bg-transparent border-b border-brand-border text-white font-mono text-right text-lg outline-none" oninput="runAll()">
+    </div>
+    <div class="grid grid-cols-2 gap-2 mb-4">
+      <label class="text-[10px] text-slate-500">Iterations
+        <select id="iters" class="w-full mt-1 bg-brand-dark border border-brand-border text-white p-1.5" onchange="runAll()">
+          <option value="10000">10,000</option><option value="50000" selected>50,000</option><option value="100000">100,000</option>
+        </select>
+      </label>
+      <label class="text-[10px] text-slate-500">Distribution
+        <select id="distMode" class="w-full mt-1 bg-brand-dark border border-brand-border text-white p-1.5" onchange="runAll()">
+          <option value="normal" selected>Normal</option><option value="uniform">Uniform</option>
+        </select>
+      </label>
+    </div>
+    <div class="flex justify-between items-center mb-3">
+      <span class="text-xs font-bold text-slate-400">Component Stack-up</span>
+      <button onclick="addComponent()" class="text-brand-accent text-xs">+ Add Part</button>
+    </div>
+    <div id="componentList" class="space-y-3"></div>
+  </aside>
+  <div class="flex-grow p-4 bg-brand-dark"><div class="mb-3 px-3 py-2 rounded border border-brand-accent/40 bg-sky-950/30 text-[11px] text-sky-200">Live data flow: Tolerance → Gap → Flux → Sensor Count → FW Decision → Capability → DOE → Decision Engine → Report</div>
+    <div class="grid grid-cols-2 xl:grid-cols-7 gap-2">
+      <div class="glass border border-brand-border rounded p-3"><div class="text-[10px] text-slate-500">YIELD</div><div id="kpiYield" class="text-xl text-white font-mono"></div></div>
+      <div class="glass border border-brand-border rounded p-3"><div class="text-[10px] text-slate-500">Cpk</div><div id="kpiCpk" class="text-xl text-white font-mono"></div></div>
+      <div class="glass border border-brand-border rounded p-3"><div class="text-[10px] text-slate-500">SIGMA</div><div id="kpiSigma" class="text-xl text-white font-mono"></div></div>
+      <div class="glass border border-brand-border rounded p-3"><div class="text-[10px] text-slate-500">RSS</div><div id="kpiRSS" class="text-xl text-white font-mono"></div></div>
+      <div class="glass border border-brand-border rounded p-3"><div class="text-[10px] text-slate-500">PPM</div><div id="kpiPPM" class="text-xl text-white font-mono"></div></div>
+      <div class="glass border border-brand-border rounded p-3"><div class="text-[10px] text-slate-500">SYSTEM YIELD</div><div id="kpiSystemYield" class="text-xl text-brand-accent font-mono"></div></div><div class="glass border border-brand-border rounded p-3"><div class="text-[10px] text-slate-500">RISK</div><div id="kpiRisk" class="text-xl font-bold"></div></div>
+    </div>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
+      <div class="glass border border-brand-border rounded p-3 h-[380px]"><canvas id="histChart"></canvas></div>
+      <div class="glass border border-brand-border rounded p-3 h-[380px]"><canvas id="tornadoChart"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<section id="tab-mag" class="tab-content min-h-screen flex-col lg:flex-row">
+  <aside class="w-full lg:w-[380px] bg-brand-panel border-r border-brand-border p-4 space-y-4">
+    <h2 class="text-brand-accent font-bold">Module 1 · BMN-50SH/ST Magnetic Model</h2>
+    <div class="rounded border border-brand-accent/40 bg-sky-950/30 p-3 text-[11px]">
+      <div class="text-white font-bold">Magnet</div>
+      <div class="text-sky-200 mt-1">BMN-50SH/ST · NdFeB · Φ6 × 2.5 mm</div>
+    </div>
+    <p class="text-[11px] text-slate-500">Uses an axial cylindrical-magnet field approximation. Br and installation offset must be calibrated with RD gauss-meter data before production release.</p>
+
+    <label class="block text-xs">Magnet profile
+      <select id="magGrade" class="w-full mt-1 p-2 bg-brand-dark border border-brand-border text-white" onchange="applyMagProfile();runAll()">
+        <option value="custom">Custom</option>
+        <option value="bmn50sh" selected>BMN-50SH/ST Φ6×2.5</option>
+        <option value="n42">Reference N42 Φ6×2.5</option>
+        <option value="n52">Reference N52 Φ6×2.5</option>
+      </select>
+    </label>
+
+    <div class="grid grid-cols-2 gap-2">
+      <label class="block text-xs">Diameter (mm)<input id="magDiameter" type="number" value="6.0" step="0.1" class="w-full mt-1 p-2 bg-brand-dark border border-brand-border text-white" oninput="runAll()"></label>
+      <label class="block text-xs">Thickness (mm)<input id="magThickness" type="number" value="2.5" step="0.1" class="w-full mt-1 p-2 bg-brand-dark border border-brand-border text-white" oninput="runAll()"></label>
+    </div>
+
+    <label class="block text-xs">Remanence Br (T, calibration input)<input id="magBr" type="number" value="1.40" step="0.01" class="w-full mt-1 p-2 bg-brand-dark border border-brand-border text-white" oninput="runAll()"></label>
+    <label class="block text-xs">Nominal magnet-to-sensor gap (mm)<input id="refGap" type="number" value="0.30" step="0.01" class="w-full mt-1 p-2 bg-brand-dark border border-brand-border text-white" oninput="runAll()"></label>
+    <label class="block text-xs">Installation / shielding factor<input id="fieldFactor" type="number" value="0.18" step="0.01" min="0.01" max="1" class="w-full mt-1 p-2 bg-brand-dark border border-brand-border text-white" oninput="runAll()"></label>
+    <label class="block text-xs">Count at nominal condition<input id="refCount" type="number" value="500" step="1" class="w-full mt-1 p-2 bg-brand-dark border border-brand-border text-white" oninput="runAll()"></label>
+    <label class="block text-xs">Sensor transfer gain (count/G)<input id="countPerG" type="number" value="0.65" step="0.01" class="w-full mt-1 p-2 bg-brand-dark border border-brand-border text-white" oninput="runAll()"></label>
+    <label class="block text-xs">Minimum acceptable flux density (G)<input id="minFlux" type="number" value="470" step="1" class="w-full mt-1 p-2 bg-brand-dark border border-brand-border text-white" oninput="runAll()"></label>
+  </aside>
+  <div class="flex-grow p-4">
+    <div class="grid grid-cols-2 xl:grid-cols-5 gap-2">
+      <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">NOMINAL GAP</div><div id="magGapKpi" class="text-xl font-mono text-white"></div></div>
+      <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">MEAN Bz</div><div id="magFluxKpi" class="text-xl font-mono text-white"></div></div>
+      <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">P05 Bz</div><div id="magP05Kpi" class="text-xl font-mono text-white"></div></div>
+      <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">MEAN COUNT</div><div id="magCountKpi" class="text-xl font-mono text-white"></div></div>
+      <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">MAGNETIC PASS</div><div id="magPassKpi" class="text-xl font-mono"></div></div>
+    </div>
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
+      <div class="glass border border-brand-border rounded p-3 h-[380px]"><canvas id="fluxGapChart"></canvas></div>
+      <div class="glass border border-brand-border rounded p-3 h-[380px]"><canvas id="countFluxChart"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<section id="tab-fw" class="tab-content min-h-screen flex-col lg:flex-row">
+  <aside class="w-full lg:w-[360px] bg-brand-panel border-r border-brand-border p-4">
+    <h2 class="text-brand-accent font-bold mb-2">FW Threshold</h2>
+    <textarea id="fwData" class="w-full h-40 p-2 bg-brand-dark border border-brand-border text-white font-mono text-xs" oninput="runAll()"></textarea>
+    <label class="block text-xs mt-4">EE noise (1σ count)<input id="eeNoise" value="2" step="0.1" type="number" class="w-full mt-1 p-2 bg-brand-dark border border-brand-border text-white" oninput="runAll()"></label>
+    <label class="block text-xs mt-4">Threshold factor <span id="fwFactorLabel" class="float-right text-brand-accent"></span>
+      <input id="fwFactor" min="1" max="6" step="0.1" value="3" type="range" class="w-full mt-2" oninput="runAll()">
+    </label>
+  </aside>
+  <div class="flex-grow p-4">
+    <div class="grid grid-cols-2 xl:grid-cols-5 gap-2">
+      <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">BASELINE MEAN</div><div id="fwMean" class="text-xl font-mono text-white"></div></div>
+      <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">BASELINE σ</div><div id="fwBaseStd" class="text-xl font-mono text-white"></div></div>
+      <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">SYSTEM σ</div><div id="fwSysStd" class="text-xl font-mono text-white"></div></div>
+      <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">PASS RANGE</div><div id="fwRange" class="text-lg font-mono text-status-pass"></div></div>
+      <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">FALSE REJECT</div><div id="fwFR" class="text-xl font-mono text-status-warn"></div></div>
+    </div>
+    <div class="glass border border-brand-border rounded p-3 h-[460px] mt-4"><canvas id="fwChart"></canvas></div>
+  </div>
+</section>
+
+<section id="tab-doe" class="tab-content min-h-screen flex-col p-4">
+  <div class="flex justify-between items-center">
+    <div><h2 class="text-white font-bold text-lg">Module 3 · Cost-aware DOE Optimizer</h2><p class="text-xs text-slate-500">Searches discrete tolerance options for the lowest estimated cost meeting the yield target.</p></div>
+    <button onclick="runDOE()" class="px-5 py-2 rounded bg-brand-accent text-brand-dark font-bold">Run Optimization</button>
+  </div>
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-4">
+    <div class="glass border border-brand-border rounded p-4 xl:col-span-2">
+      <div class="text-xs font-bold text-brand-accent mb-3">Tolerance / Cost Matrix</div>
+      <div class="overflow-x-auto"><table class="w-full text-xs"><thead><tr class="text-left text-slate-500"><th class="p-2">Part</th><th>Current</th><th>Tight option</th><th>Cost weight</th><th>Contribution</th></tr></thead><tbody id="doeMatrix"></tbody></table></div>
+    </div>
+    <div class="glass border border-brand-border rounded p-4"><div class="flex justify-between items-center mb-3"><div class="text-xs font-bold text-status-warn">Optimization Result</div><button id="applyDoeBtn" onclick="applyDOE()" disabled class="px-3 py-1 rounded bg-slate-700 text-slate-400 text-[11px] font-bold cursor-not-allowed">Apply DOE</button></div><div id="doeResult" class="space-y-2 text-xs">Press Run Optimization.</div></div>
+  </div>
+  <div class="glass border border-brand-border rounded p-3 h-[400px] mt-4"><canvas id="paretoChart"></canvas></div>
+</section>
+
+<section id="tab-cap" class="tab-content min-h-screen flex-col p-4">
+  <h2 class="text-white font-bold text-lg">Module 4 · Capability Dashboard</h2>
+  <div class="grid grid-cols-2 xl:grid-cols-8 gap-2 mt-4">
+    <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">Cp</div><div id="capCp" class="text-xl font-mono text-white"></div></div>
+    <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">Cpk</div><div id="capCpk" class="text-xl font-mono text-white"></div></div>
+    <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">Ppk</div><div id="capPpk" class="text-xl font-mono text-white"></div></div>
+    <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">Sigma</div><div id="capSigma" class="text-xl font-mono text-white"></div></div>
+    <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">PPM</div><div id="capPpm" class="text-xl font-mono text-white"></div></div>
+    <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">Mean</div><div id="capMean" class="text-xl font-mono text-white"></div></div>
+    <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">Std</div><div id="capStd" class="text-xl font-mono text-white"></div></div>
+    <div class="glass border border-brand-border p-3 rounded"><div class="text-[10px] text-slate-500">Status</div><div id="capStatus" class="text-xl font-bold"></div></div>
+  </div>
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
+    <div class="glass border border-brand-border p-3 rounded h-[400px]"><canvas id="capGauge"></canvas></div>
+    <div class="glass border border-brand-border p-3 rounded h-[400px]"><canvas id="capTrend"></canvas></div>
+  </div>
+</section>
+
+<section id="tab-ai" class="tab-content min-h-screen flex-col p-4">
+  <h2 class="text-white font-bold text-lg">Module 5 · Engineering Decision Engine</h2>
+  <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-4">
+    <div class="glass border border-brand-border rounded p-4 xl:col-span-2"><div class="text-xs font-bold text-brand-accent mb-3">Engineering Recommendations</div><div id="aiRecommendations" class="space-y-3"></div></div>
+    <div class="glass border border-brand-border rounded p-4"><div class="text-xs font-bold text-status-warn mb-3">Decision Summary</div><div id="aiSummary" class="space-y-2 text-xs"></div></div>
+  </div>
+  <div class="glass border border-brand-border rounded p-4 mt-4">
+    <div class="text-xs font-bold mb-3">Risk Matrix</div>
+    <div class="grid grid-cols-4 gap-1 text-center text-xs">
+      <div></div><div class="p-2 text-slate-500">Low probability</div><div class="p-2 text-slate-500">Medium</div><div class="p-2 text-slate-500">High</div>
+      <div class="p-2 text-slate-500">High impact</div><div class="p-3 bg-yellow-900/40">Monitor</div><div class="p-3 bg-red-900/40">Mitigate</div><div id="riskHigh" class="p-3 bg-red-700/60">Critical</div>
+      <div class="p-2 text-slate-500">Medium impact</div><div class="p-3 bg-green-900/40">Accept</div><div id="riskMedium" class="p-3 bg-yellow-900/50">Control</div><div class="p-3 bg-red-900/40">Mitigate</div>
+      <div class="p-2 text-slate-500">Low impact</div><div id="riskLow" class="p-3 bg-green-800/50">Accept</div><div class="p-3 bg-green-900/40">Monitor</div><div class="p-3 bg-yellow-900/40">Control</div>
+    </div>
+  </div>
+</section>
+
+<section id="tab-report" class="tab-content min-h-screen flex-col bg-white text-black p-8">
+  <div class="max-w-5xl mx-auto w-full space-y-6">
+    <div class="border-b-2 border-black pb-4"><h1 class="text-3xl font-bold">EDSS v8.0 Engineering Report</h1><div class="flex justify-between text-sm text-gray-600 mt-2"><span>Project: DS-070KN-01</span><span id="reportDate"></span></div></div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="print-panel bg-gray-50 p-4"><div class="text-xs text-gray-500">Yield</div><div id="repYield" class="text-2xl font-bold"></div></div>
+      <div class="print-panel bg-gray-50 p-4"><div class="text-xs text-gray-500">Cpk</div><div id="repCpk" class="text-2xl font-bold"></div></div>
+      <div class="print-panel bg-gray-50 p-4"><div class="text-xs text-gray-500">Flux Pass</div><div id="repFlux" class="text-2xl font-bold"></div></div>
+      <div class="print-panel bg-gray-50 p-4"><div class="text-xs text-gray-500">FW Range</div><div id="repFW" class="text-lg font-bold"></div></div>
+    </div>
+    <div class="print-panel p-4"><h3 class="font-bold text-lg border-b pb-2 mb-3">Executive Summary</h3><ul id="repSummary" class="list-disc pl-5 space-y-2"></ul></div>
+    <div class="print-panel p-4"><h3 class="font-bold text-lg border-b pb-2 mb-3">Magnet Configuration</h3><div id="repMagnet" class="text-sm"></div></div><div class="print-panel p-4"><h3 class="font-bold text-lg border-b pb-2 mb-3">Tolerance Configuration</h3><table class="w-full text-sm"><thead class="bg-gray-100"><tr><th class="p-2 text-left">Component</th><th class="text-left">Tolerance</th><th class="text-left">Variance Contribution</th><th class="text-left">DOE Suggestion</th></tr></thead><tbody id="repTable"></tbody></table></div>
+  </div>
+</section>
+</main>
+
+<script>
+const state={
+  components:[
+    {name:'PCB Thickness',tol:0.08,cost:1.4},
+    {name:'Housing Holder',tol:0.04,cost:1.8},
+    {name:'Plastic Knob',tol:0.03,cost:1.3},
+    {name:'Adhesive Layer',tol:0.03,cost:1.2},
+    {name:'Magnet Thickness',tol:0.02,cost:1.5}
+  ],
+  results:[], target:0.05, mean:0, std:0, rss:0, yield:0, cp:0, cpk:0, ppk:0, ppm:0,
+  flux:[], counts:[], fluxPass:0, fluxMean:0, fluxP05:0, countMean:0,
+  fw:{mean:0,baseStd:0,sysStd:0,lsl:0,usl:0,fr:0},
+  doe:null, systemYield:0, fwPass:0, magneticYield:0, systemPassMask:[]
+};
+const charts={};
+function randn(){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+function mean(a){return a.reduce((s,v)=>s+v,0)/Math.max(1,a.length)}
+function std(a,m=mean(a)){return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/Math.max(1,a.length))}
+function quantile(a,q){const b=[...a].sort((x,y)=>x-y),p=(b.length-1)*q,i=Math.floor(p),f=p-i;return b[i]+(b[i+1]??b[i])*f}
+function erf(x){const s=x>=0?1:-1;x=Math.abs(x);const a1=.254829592,a2=-.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=.3275911,t=1/(1+p*x);return s*(1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x))}
+function fmt(v,d=2){return Number.isFinite(v)?v.toFixed(d):'--'}
+function switchTab(id,btn){document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));document.getElementById(id).classList.add('active');btn.classList.add('active');if(id==='tab-report')generateReport()}
+function addComponent(){state.components.push({name:'New Part',tol:.03,cost:1.3});renderComponents();runAll()}
+function removeComponent(i){state.components.splice(i,1);renderComponents();runAll()}
+function renderComponents(){
+  const el=document.getElementById('componentList');el.innerHTML='';
+  state.components.forEach((c,i)=>{
+    el.innerHTML+=`<div class="bg-brand-dark border border-brand-border rounded p-3">
+      <div class="flex gap-2 mb-2">
+        <input value="${c.name}" class="flex-grow bg-transparent text-white font-bold text-xs outline-none" onchange="state.components[${i}].name=this.value;runAll()">
+        <button class="text-status-fail" onclick="removeComponent(${i})">×</button>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <label class="text-[10px] text-slate-500">Tolerance ±mm<input type="number" value="${c.tol}" step="0.005" class="w-full mt-1 p-1.5 bg-brand-panel border border-brand-border text-white" oninput="state.components[${i}].tol=parseFloat(this.value)||.001;runAll()"></label>
+        <label class="text-[10px] text-slate-500">Tightening cost<input type="number" value="${c.cost}" step="0.1" class="w-full mt-1 p-1.5 bg-brand-panel border border-brand-border text-white" oninput="state.components[${i}].cost=parseFloat(this.value)||1;runAll()"></label>
+      </div>
+    </div>`;
+  });
+}
+function initCharts(){
+  Chart.defaults.color='#94a3b8';Chart.defaults.font.family='Consolas';
+  charts.hist=new Chart(document.getElementById('histChart'),{type:'bar',data:{labels:[],datasets:[{data:[],backgroundColor:[]}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},title:{display:true,text:'Gap Distribution'}},scales:{x:{grid:{color:'#334155'}},y:{grid:{color:'#334155'}}}}});
+  charts.tornado=new Chart(document.getElementById('tornadoChart'),{type:'bar',data:{labels:[],datasets:[{data:[],backgroundColor:'#38bdf8'}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},title:{display:true,text:'Variance Contribution %'}},scales:{x:{grid:{color:'#334155'}},y:{grid:{display:false}}}}});
+  charts.fluxGap=new Chart(document.getElementById('fluxGapChart'),{type:'line',data:{labels:[],datasets:[{label:'Flux (G)',data:[],borderColor:'#38bdf8',tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:'Flux vs Gap'}},scales:{x:{title:{display:true,text:'Gap (mm)'},grid:{color:'#334155'}},y:{grid:{color:'#334155'}}}}});
+  charts.countFlux=new Chart(document.getElementById('countFluxChart'),{type:'scatter',data:{datasets:[{label:'Sensor Count',data:[],backgroundColor:'#22c55e'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:'Sensor Count vs Flux'}},scales:{x:{title:{display:true,text:'Flux (G)'},grid:{color:'#334155'}},y:{title:{display:true,text:'Count'},grid:{color:'#334155'}}}}});
+  charts.fw=new Chart(document.getElementById('fwChart'),{type:'line',data:{labels:[],datasets:[{label:'False Reject %',data:[],borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,.15)',fill:true,tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:'Threshold Trade-off'}},scales:{x:{title:{display:true,text:'Threshold factor (σ)'},grid:{color:'#334155'}},y:{beginAtZero:true,grid:{color:'#334155'}}}}});
+  charts.pareto=new Chart(document.getElementById('paretoChart'),{type:'scatter',data:{datasets:[{label:'Candidate solutions',data:[],backgroundColor:'#38bdf8'},{label:'Selected',data:[],backgroundColor:'#22c55e',pointRadius:8}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:'Yield vs Relative Cost'}},scales:{x:{title:{display:true,text:'Relative cost'},grid:{color:'#334155'}},y:{title:{display:true,text:'Yield %'},grid:{color:'#334155'}}}}});
+  charts.capGauge=new Chart(document.getElementById('capGauge'),{type:'bar',data:{labels:['Cpk'],datasets:[{data:[0],backgroundColor:['#38bdf8']}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},title:{display:true,text:'Process Capability Gauge'}},scales:{x:{min:0,max:2,title:{display:true,text:'Cpk'},grid:{color:'#334155'}},y:{grid:{display:false}}}}});
+  charts.capTrend=new Chart(document.getElementById('capTrend'),{type:'line',data:{labels:['Mechanical','Magnetic','FW','System','DOE'],datasets:[{label:'Linked yield / 100',data:[0,0,0,0,0],borderColor:'#38bdf8',tension:.3},{label:'Target 99.7%',data:[0.997,0.997,0.997,0.997,0.997],borderColor:'#f59e0b',borderDash:[5,5],pointRadius:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:'Live Baseline vs DOE Scenario'}},scales:{x:{grid:{color:'#334155'}},y:{min:0,max:1.05,grid:{color:'#334155'}}}}});
+}
+
+function parseNumbers(text){return text.split(new RegExp('[\\n,;\\t ]+')).map(Number).filter(Number.isFinite)}
+function normalYieldForTol(tols){
+  const sigma=Math.sqrt(tols.reduce((s,t)=>s+(t/3)**2,0));
+  return sigma>0?erf(state.target/(sigma*Math.sqrt(2)))*100:100;
+}
+function cylinderAxialFluxGauss(gapMm){
+  const d=+document.getElementById('magDiameter').value;
+  const thickness=+document.getElementById('magThickness').value;
+  const br=+document.getElementById('magBr').value;
+  const factor=+document.getElementById('fieldFactor').value;
+  const R=Math.max(0.001,d/2);
+  const z=Math.max(0.001,gapMm);
+  const bzTesla=(br/2)*(((z+thickness)/Math.sqrt(R*R+(z+thickness)*(z+thickness)))-(z/Math.sqrt(R*R+z*z)));
+  return Math.max(0,bzTesla*10000*factor);
+}
+
+function linkedScenario(tols){
+  const nominalGap=+document.getElementById('refGap').value;
+  const cpg=+document.getElementById('countPerG').value;
+  const minFlux=+document.getElementById('minFlux').value;
+  const ee=+document.getElementById('eeNoise').value||0;
+  const factor=+document.getElementById('fwFactor').value||3;
+  const sigmaGap=Math.sqrt(tols.reduce((s,t)=>s+(t/3)**2,0));
+  const mechanicalYield=normalYieldForTol(tols);
+  const nominalFlux=cylinderAxialFluxGauss(nominalGap);
+  const upperGapFlux=cylinderAxialFluxGauss(nominalGap+3*sigmaGap);
+  const magneticYield=upperGapFlux>=minFlux?99.73:Math.max(0,Math.min(99.73,(upperGapFlux/minFlux)*99.73));
+  const derivative=Math.abs(cylinderAxialFluxGauss(nominalGap+0.01)-cylinderAxialFluxGauss(nominalGap-0.01))/0.02;
+  const countSigma=derivative*sigmaGap*cpg;
+  const raw=parseNumbers(document.getElementById('fwData').value);
+  const baselineStd=std(raw,mean(raw));
+  const systemCountSigma=Math.sqrt(baselineStd**2+countSigma**2+ee**2);
+  const fwPass=Math.max(0,Math.min(100,erf(factor/Math.sqrt(2))*100));
+  const systemYield=mechanicalYield/100*magneticYield/100*fwPass/100*100;
+  const cpk=sigmaGap>0?state.target/(3*sigmaGap):99;
+  return {mechanicalYield,magneticYield,fwPass,systemYield,countSigma,systemCountSigma,cpk,nominalFlux,upperGapFlux};
+}
+
+function runHW(){
+  state.target=parseFloat(document.getElementById('targetSpec').value)||.05;
+  const n=parseInt(document.getElementById('iters').value),mode=document.getElementById('distMode').value;
+  state.rss=Math.sqrt(state.components.reduce((s,c)=>s+c.tol**2,0));
+  const res=new Float32Array(n);let pass=0;
+  for(let i=0;i<n;i++){let g=0;for(const c of state.components){g+=mode==='uniform'?(Math.random()*2-1)*c.tol:randn()*(c.tol/3)}res[i]=g;if(Math.abs(g)<=state.target)pass++}
+  state.results=Array.from(res);state.mean=mean(state.results);state.std=std(state.results,state.mean);state.yield=pass/n*100;
+  state.cp=(2*state.target)/(6*state.std);state.cpk=Math.min((state.target-state.mean)/(3*state.std),(state.mean+state.target)/(3*state.std));state.ppk=state.cpk;state.ppm=(1-state.yield/100)*1e6;
+  document.getElementById('kpiYield').textContent=fmt(state.yield)+'%';document.getElementById('kpiCpk').textContent=fmt(state.cpk);document.getElementById('kpiSigma').textContent=fmt(state.cpk*3)+'σ';document.getElementById('kpiRSS').textContent=fmt(state.rss,3)+' mm';document.getElementById('kpiPPM').textContent=Math.round(state.ppm).toLocaleString();
+  const r=document.getElementById('kpiRisk'),risk=state.yield>=99.7?'LOW':state.yield>=95?'MEDIUM':'HIGH';r.textContent=risk;r.className='text-xl font-bold '+(risk==='LOW'?'text-status-pass':risk==='MEDIUM'?'text-status-warn':'text-status-fail');
+  updateHWCharts();
+}
+function updateHWCharts(){
+  const bins=42,min=-state.target*2,max=state.target*2,step=(max-min)/bins,h=new Array(bins).fill(0),labels=[];
+  for(let i=0;i<bins;i++)labels.push((min+(i+.5)*step).toFixed(3));
+  state.results.forEach(v=>{const b=Math.floor((v-min)/step);if(b>=0&&b<bins)h[b]++});
+  charts.hist.data.labels=labels;charts.hist.data.datasets[0].data=h;charts.hist.data.datasets[0].backgroundColor=labels.map(x=>Math.abs(+x)>state.target?'#ef4444':'#38bdf8');charts.hist.update();
+  const ss=state.components.reduce((s,c)=>s+c.tol**2,0),p=state.components.map(c=>({n:c.name,v:ss?c.tol**2/ss*100:0})).sort((a,b)=>b.v-a.v);
+  charts.tornado.data.labels=p.map(x=>x.n);charts.tornado.data.datasets[0].data=p.map(x=>x.v);charts.tornado.update();
+}
+function applyMagProfile(){
+  const p=document.getElementById('magGrade').value;
+  const presets={
+    bmn50sh:{d:6.0,t:2.5,br:1.40,f:0.18},
+    n42:{d:6.0,t:2.5,br:1.30,f:0.18},
+    n52:{d:6.0,t:2.5,br:1.45,f:0.18}
+  };
+  if(!presets[p])return;
+  document.getElementById('magDiameter').value=presets[p].d;
+  document.getElementById('magThickness').value=presets[p].t;
+  document.getElementById('magBr').value=presets[p].br;
+  document.getElementById('fieldFactor').value=presets[p].f;
+}
+function runMag(){
+  const nominalGap=+document.getElementById('refGap').value;
+  const refCount=+document.getElementById('refCount').value;
+  const cpg=+document.getElementById('countPerG').value;
+  const minFlux=+document.getElementById('minFlux').value;
+  const nominalFlux=cylinderAxialFluxGauss(nominalGap);
+
+  state.flux=state.results.map(g=>cylinderAxialFluxGauss(Math.max(0.001,nominalGap+g)));
+  state.counts=state.flux.map(f=>refCount+(f-nominalFlux)*cpg);
+  state.fluxMean=mean(state.flux);
+  state.fluxP05=quantile(state.flux,.05);
+  state.countMean=mean(state.counts);
+  state.fluxPass=state.flux.filter(f=>f>=minFlux).length/Math.max(1,state.flux.length)*100;
+  state.magneticYield=state.fluxPass;
+
+  document.getElementById('magGapKpi').textContent=fmt(nominalGap,3)+' mm';
+  document.getElementById('magFluxKpi').textContent=fmt(state.fluxMean,1)+' G';
+  document.getElementById('magP05Kpi').textContent=fmt(state.fluxP05,1)+' G';
+  document.getElementById('magCountKpi').textContent=fmt(state.countMean,1);
+  const p=document.getElementById('magPassKpi');
+  p.textContent=fmt(state.fluxPass)+'%';
+  p.className='text-xl font-mono '+(state.fluxPass>=99.7?'text-status-pass':'text-status-warn');
+
+  const xs=[],ys=[];
+  const start=Math.max(0.01,nominalGap-state.target*2);
+  const end=nominalGap+state.target*2;
+  for(let g=start;g<=end;g+=(end-start)/40){xs.push(g.toFixed(3));ys.push(cylinderAxialFluxGauss(g))}
+  charts.fluxGap.data.labels=xs;
+  charts.fluxGap.data.datasets[0].data=ys;
+  charts.fluxGap.data.datasets[0].label='BMN-50SH/ST axial Bz (G)';
+  charts.fluxGap.update();
+
+  const stride=Math.max(1,Math.floor(state.flux.length/400));
+  charts.countFlux.data.datasets[0].data=state.flux.filter((_,i)=>i%stride===0).map((f,i)=>({x:f,y:state.counts[i*stride]}));
+  charts.countFlux.update();
+}
+function runFW(){
+  const raw=parseNumbers(document.getElementById('fwData').value);
+  const m=mean(raw),bs=std(raw,m),ee=+document.getElementById('eeNoise').value||0,f=+document.getElementById('fwFactor').value;
+  const countStd=std(state.counts,state.countMean);
+  const sys=Math.sqrt(bs**2+countStd**2+ee**2);
+  state.fw={mean:m,baseStd:bs,sysStd:sys,lsl:m-f*sys,usl:m+f*sys,fr:(1-erf(f/Math.sqrt(2)))*100};
+  state.fwPass=100-state.fw.fr;
+  document.getElementById('fwFactorLabel').textContent=f.toFixed(1)+'σ';
+  document.getElementById('fwMean').textContent=fmt(m,1);
+  document.getElementById('fwBaseStd').textContent=fmt(bs,2);
+  document.getElementById('fwSysStd').textContent=fmt(sys,2);
+  document.getElementById('fwRange').textContent=fmt(state.fw.lsl,1)+' ~ '+fmt(state.fw.usl,1);
+  document.getElementById('fwFR').textContent=fmt(state.fw.fr,3)+'%';
+  const minFlux=+document.getElementById('minFlux').value;
+  state.systemPassMask=state.results.map((g,i)=>{
+    const mechanical=Math.abs(g)<=state.target;
+    const magnetic=state.flux[i]>=minFlux;
+    const centeredCount=m+(state.counts[i]-state.countMean);
+    const fw=centeredCount>=state.fw.lsl&&centeredCount<=state.fw.usl;
+    return mechanical&&magnetic&&fw;
+  });
+  state.systemYield=state.systemPassMask.filter(Boolean).length/Math.max(1,state.systemPassMask.length)*100;
+  document.getElementById('kpiSystemYield').textContent=fmt(state.systemYield)+'%';
+  const labels=[],data=[];for(let x=1;x<=6;x+=.25){labels.push(x.toFixed(2));data.push((1-erf(x/Math.sqrt(2)))*100)}
+  charts.fw.data.labels=labels;charts.fw.data.datasets[0].data=data;charts.fw.update();
+}
+function estimateYield(tols){return linkedScenario(tols).systemYield}
+function renderDOE(){
+  const ss=state.components.reduce((s,c)=>s+c.tol**2,0);document.getElementById('doeMatrix').innerHTML=state.components.map(c=>`<tr class="border-t border-brand-border"><td class="p-2">${c.name}</td><td>${c.tol.toFixed(3)}</td><td>${(c.tol*.75).toFixed(3)}</td><td>${c.cost.toFixed(1)}×</td><td>${fmt(c.tol**2/ss*100,1)}%</td></tr>`).join('');
+}
+function runDOE(){
+  const n=state.components.length,candidates=[],total=1<<n;
+  for(let mask=0;mask<total;mask++){
+    const tols=[],changes=[];let cost=0;
+    state.components.forEach((c,i)=>{const tight=!!(mask&(1<<i)),t=tight?c.tol*.75:c.tol;tols.push(t);if(tight){cost+=c.cost;changes.push(i)}});
+    const linked=linkedScenario(tols);candidates.push({...linked,cost,changes,tols});
+  }
+  const feasible=candidates.filter(x=>x.systemYield>=99.7).sort((a,b)=>a.cost-b.cost||b.systemYield-a.systemYield);
+  const best=feasible[0]||[...candidates].sort((a,b)=>b.systemYield-a.systemYield||a.cost-b.cost)[0];
+  state.doe=best;
+  document.getElementById('doeResult').innerHTML=`<div>System-yield target: <b>99.70%</b></div><div>Mechanical: <b>${fmt(best.mechanicalYield)}%</b></div><div>Magnetic: <b>${fmt(best.magneticYield)}%</b></div><div>FW pass: <b>${fmt(best.fwPass)}%</b></div><div>Linked system yield: <b class="${best.systemYield>=99.7?'text-status-pass':'text-status-warn'}">${fmt(best.systemYield)}%</b></div><div>Relative cost: <b>+${fmt(best.cost,1)}</b></div><div class="pt-2 border-t border-brand-border">${best.changes.length?best.changes.map(i=>`${state.components[i].name}: ${state.components[i].tol.toFixed(3)} → ${best.tols[i].toFixed(3)} mm`).join('<br>'):'No tightening selected.'}</div>`;
+  const btn=document.getElementById('applyDoeBtn');btn.disabled=false;btn.className='px-3 py-1 rounded bg-brand-accent text-brand-dark text-[11px] font-bold';
+  charts.pareto.data.datasets[0].data=candidates.map(x=>({x:x.cost,y:x.systemYield}));
+  charts.pareto.data.datasets[1].data=[{x:best.cost,y:best.systemYield}];charts.pareto.update();
+  runCapability();runAI();generateReport();
+}
+function applyDOE(){
+  if(!state.doe)return;
+  state.components.forEach((c,i)=>c.tol=state.doe.tols[i]);
+  state.doe=null;renderComponents();
+  const btn=document.getElementById('applyDoeBtn');btn.disabled=true;btn.className='px-3 py-1 rounded bg-slate-700 text-slate-400 text-[11px] font-bold cursor-not-allowed';
+  document.getElementById('doeResult').innerHTML='<div class="text-status-pass font-bold">DOE tolerances applied to the master model.</div><div>All tabs and the report were recalculated.</div>';
+  runAll();
+}
+function runCapability(){
+  document.getElementById('capCp').textContent=fmt(state.cp);
+  document.getElementById('capCpk').textContent=fmt(state.cpk);
+  document.getElementById('capPpk').textContent=fmt(state.ppk);
+  document.getElementById('capSigma').textContent=fmt(state.cpk*3)+'σ';
+  document.getElementById('capPpm').textContent=Math.round((1-state.systemYield/100)*1e6).toLocaleString();
+  document.getElementById('capMean').textContent=fmt(state.mean,4);
+  document.getElementById('capStd').textContent=fmt(state.std,4);
+  const s=state.systemYield>=99.7&&state.cpk>=1.33?'CAPABLE':state.systemYield>=95?'MARGINAL':'NOT CAPABLE';
+  const el=document.getElementById('capStatus');el.textContent=s;el.className='text-xl font-bold '+(s==='CAPABLE'?'text-status-pass':s==='MARGINAL'?'text-status-warn':'text-status-fail');
+  charts.capGauge.data.datasets[0].data=[Math.max(0,state.cpk)];
+  charts.capGauge.data.datasets[0].backgroundColor=[state.cpk>=1.33?'#22c55e':state.cpk>=1?'#f59e0b':'#ef4444'];charts.capGauge.update();
+  const doeY=state.doe?state.doe.systemYield/100:state.systemYield/100;
+  charts.capTrend.data.datasets[0].data=[state.yield/100,state.magneticYield/100,state.fwPass/100,state.systemYield/100,doeY];
+  charts.capTrend.update();
+}
+function runAI(){
+  const ss=state.components.reduce((s,c)=>s+c.tol**2,0),rank=[...state.components].map(c=>({...c,impact:c.tol**2/ss*100})).sort((a,b)=>b.impact-a.impact),top=rank[0];
+  const rec=[];
+  if(state.systemYield<99.7)rec.push({level:'HIGH',title:'End-to-end system yield below target',body:`Linked system yield is ${fmt(state.systemYield)}% (mechanical ${fmt(state.yield)}%, magnetic ${fmt(state.magneticYield)}%, FW ${fmt(state.fwPass)}%). Prioritize ${top.name}, which contributes ${fmt(top.impact,1)}% of stack variance.`});
+  else rec.push({level:'LOW',title:'End-to-end system meets target',body:`Linked system yield is ${fmt(state.systemYield)}%. Maintain process controls and verify with pilot-run data.`});
+  if(state.fluxPass<99.7)rec.push({level:'HIGH',title:'Magnetic margin is insufficient',body:`Flux pass rate is ${fmt(state.fluxPass)}%. For DRFQ23-08 BMN-50SH/ST, first verify actual Bz with a gauss meter; then evaluate smaller nominal gap, installation alignment, shielding loss, or tighter gap-related tolerances.`});
+  else rec.push({level:'LOW',title:'Magnetic margin is acceptable',body:`P05 flux is ${fmt(state.fluxP05,1)} G and flux pass rate is ${fmt(state.fluxPass)}%.`});
+  if(state.cpk<1.33)rec.push({level:'MEDIUM',title:'Cpk below typical production target',body:`Current Cpk is ${fmt(state.cpk)}. Run DOE and confirm actual process mean shift before release.`});
+  if(state.fw.fr>.3)rec.push({level:'MEDIUM',title:'FW false reject risk',body:`Current theoretical false reject rate is ${fmt(state.fw.fr,3)}%. Increase threshold factor only after checking false-accept risk.`});
+  document.getElementById('aiRecommendations').innerHTML=rec.map(r=>`<div class="border border-brand-border rounded p-3"><div class="font-bold ${r.level==='HIGH'?'text-status-fail':r.level==='MEDIUM'?'text-status-warn':'text-status-pass'}">[${r.level}] ${r.title}</div><div class="text-xs text-slate-400 mt-1">${r.body}</div></div>`).join('');
+  const overall=rec.some(r=>r.level==='HIGH')?'HIGH':rec.some(r=>r.level==='MEDIUM')?'MEDIUM':'LOW';document.getElementById('aiSummary').innerHTML=`<div>Overall risk: <b class="${overall==='HIGH'?'text-status-fail':overall==='MEDIUM'?'text-status-warn':'text-status-pass'}">${overall}</b></div><div>Main contributor: <b>${top.name}</b></div><div>Contribution: <b>${fmt(top.impact,1)}%</b></div><div>Recommended owner: <b>${overall==='HIGH'?'ME + FW + Supplier':'ME / Quality'}</b></div><div>Confidence: <b>${state.results.length>=50000?'High':'Medium'}</b></div>`;
+}
+function generateReport(){
+  document.getElementById('reportDate').textContent=new Date().toLocaleDateString('zh-TW');document.getElementById('repYield').textContent=fmt(state.systemYield)+'%';document.getElementById('repCpk').textContent=fmt(state.cpk);document.getElementById('repFlux').textContent=fmt(state.fluxPass)+'%';document.getElementById('repFW').textContent=fmt(state.fw.lsl,1)+' ~ '+fmt(state.fw.usl,1);
+  const ss=state.components.reduce((s,c)=>s+c.tol**2,0),worst=[...state.components].sort((a,b)=>b.tol-a.tol)[0];
+  document.getElementById('repSummary').innerHTML=`<li>Linked system yield is <b>${fmt(state.systemYield)}%</b> (mechanical ${fmt(state.yield)}%, magnetic ${fmt(state.magneticYield)}%, FW ${fmt(state.fwPass)}%); Cpk is <b>${fmt(state.cpk)}</b>.</li><li>Magnetic model estimates P05 flux of <b>${fmt(state.fluxP05,1)} G</b> and flux pass rate of <b>${fmt(state.fluxPass)}%</b>.</li><li>Main tolerance contributor is <b>${worst?.name||'--'}</b>.</li><li>FW recommended pass range is <b>${fmt(state.fw.lsl,1)} ~ ${fmt(state.fw.usl,1)}</b>.</li><li>${state.doe?`DOE selected ${state.doe.changes.length} tolerance change(s), estimated yield ${fmt(state.doe.systemYield)}%.`:'Run DOE before final release decision.'}</li>`;
+  document.getElementById('repMagnet').innerHTML=`<b>DRFQ23-08 BMN-50SH/ST</b> · NdFeB · Φ${(+document.getElementById('magDiameter').value).toFixed(1)} × ${(+document.getElementById('magThickness').value).toFixed(1)} mm · Br input ${(+document.getElementById('magBr').value).toFixed(2)} T · Nominal gap ${(+document.getElementById('refGap').value).toFixed(3)} mm · Installation factor ${(+document.getElementById('fieldFactor').value).toFixed(2)}`;
+  document.getElementById('repTable').innerHTML=state.components.map((c,i)=>`<tr class="border-b"><td class="p-2">${c.name}</td><td>±${c.tol.toFixed(3)} mm</td><td>${fmt(c.tol**2/ss*100,1)}%</td><td>${state.doe&&state.doe.changes.includes(i)?'Tighten to ±'+state.doe.tols[i].toFixed(3):'Maintain'}</td></tr>`).join('');
+}
+
+function updateSystemRisk(){
+  const r=document.getElementById('kpiRisk');
+  const risk=state.systemYield>=99.7?'LOW':state.systemYield>=95?'MEDIUM':'HIGH';
+  r.textContent=risk;r.className='text-xl font-bold '+(risk==='LOW'?'text-status-pass':risk==='MEDIUM'?'text-status-warn':'text-status-fail');
+}
+
+function runAll(){runHW();runMag();runFW();updateSystemRisk();renderDOE();runCapability();runAI();generateReport()}
+window.onload=()=>{
+  const mock=Array.from({length:40},()=>50+randn()*2.5);document.getElementById('fwData').value=mock.map(v=>v.toFixed(2)).join('\n');
+  renderComponents();initCharts();applyMagProfile();runAll();
+};
+</script>
+</body>
+</html>
+
