@@ -4,7 +4,7 @@ Live Demo: https://acm11412907.github.io/EDSS_v8.0/
 
 A browser-based engineering analysis tool for evaluating rotary HMI (Human-Machine Interface) controls that rely on magnetic sensing. EDSS models the relationship between mechanical tolerance, magnetic field behavior, firmware detection thresholds, and production yield — turning cross-functional engineering knowledge into a single, reusable decision framework.
 
-Built to support the validation and production-readiness process for project DS-070KN-01, a magnetic rotary encoder / HMI control design.
+Built to support the validation and production-readiness process for project, a magnetic rotary encoder / HMI control design.
 
 Why This Exists
 
